@@ -8,6 +8,7 @@ import android.app.ProgressDialog;
 import android.content.Intent;
 import android.net.Uri;
 import android.os.Bundle;
+import android.util.Log;
 import android.view.View;
 import android.widget.Button;
 import android.widget.ImageView;
@@ -53,17 +54,21 @@ public class MainActivity extends AppCompatActivity {
         textView = findViewById(R.id.text);
         button = findViewById(R.id.selectImage);
         imageView = findViewById(R.id.image);
+        progressDialog = new ProgressDialog(MainActivity.this);
+        progressDialog.setMessage("Please Wait...");
+        progressDialog.setCanceledOnTouchOutside(false);
         button.setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View v) {
-                fromRemoteModel();
+                  CropImage.activity().start(MainActivity.this);
+             //   fromRemoteModel();
             }
         });
     }
 
     private void setLabelerFromLocalModel(Uri uri) {
         localModel = new FirebaseAutoMLLocalModel.Builder()
-                .setAssetFilePath("manifest.json")
+                .setAssetFilePath("model/manifest.json")
                 .build();
         try {
             FirebaseVisionOnDeviceAutoMLImageLabelerOptions options =
@@ -88,7 +93,8 @@ public class MainActivity extends AppCompatActivity {
                     Uri uri = result.getUri(); //path of image in phone
                     imageView.setImageURI(uri); //set image in imageview
                     textView.setText(""); //so that previous text don't get append with new one
-                    setLabelerFromLocalModel(uri);
+                      setLabelerFromLocalModel(uri);
+                   // setLabelerFromRemoteLabel(uri);
                 } else
                     progressDialog.cancel();
             } else
@@ -98,10 +104,10 @@ public class MainActivity extends AppCompatActivity {
 
     private void setLabelerFromRemoteLabel(final Uri uri) {
         FirebaseModelManager.getInstance().isModelDownloaded(remoteModel)
-                .addOnSuccessListener(new OnSuccessListener<Boolean>() {
+                .addOnCompleteListener(new OnCompleteListener<Boolean>() {
                     @Override
-                    public void onSuccess(Boolean isDownloaded) {
-                        if (isDownloaded) {
+                    public void onComplete(@NonNull Task<Boolean> task) {
+                        if (task.isComplete()) {
                             optionsBuilder = new FirebaseVisionOnDeviceAutoMLImageLabelerOptions.Builder(remoteModel);
                             FirebaseVisionOnDeviceAutoMLImageLabelerOptions options = optionsBuilder
                                     .setConfidenceThreshold(0.0f)
@@ -111,35 +117,49 @@ public class MainActivity extends AppCompatActivity {
                                 image = FirebaseVisionImage.fromFilePath(MainActivity.this, uri);
                                 processImageLabeler(labeler, image);
                             } catch (FirebaseMLException | IOException exception) {
-                                // Error.
+                                Log.e("TAG", "onSuccess: " + exception);
+                                Toast.makeText(MainActivity.this, "Ml exeception", Toast.LENGTH_SHORT).show();
                             }
-                        }
+                        } else
+                            Toast.makeText(MainActivity.this, "Not downloaded", Toast.LENGTH_SHORT).show();
+
                     }
-                });
+                }).addOnFailureListener(new OnFailureListener() {
+            @Override
+            public void onFailure(@NonNull Exception e) {
+                Log.e("TAG", "onFailure: "+e );
+                Toast.makeText(MainActivity.this, "err"+e, Toast.LENGTH_SHORT).show();
+            }
+        });
     }
 
     private void processImageLabeler(FirebaseVisionImageLabeler labeler, FirebaseVisionImage image) {
-        labeler.processImage(image).addOnSuccessListener(new OnSuccessListener<List<FirebaseVisionImageLabel>>() {
+        labeler.processImage(image).addOnCompleteListener(new OnCompleteListener<List<FirebaseVisionImageLabel>>() {
             @Override
-            public void onSuccess(List<FirebaseVisionImageLabel> labels) {
+            public void onComplete(@NonNull Task<List<FirebaseVisionImageLabel>> task) {
                 progressDialog.cancel();
-                for (FirebaseVisionImageLabel label : labels) {
+                for (FirebaseVisionImageLabel label : task.getResult()) {
                     String eachlabel = label.getText().toUpperCase();
                     float confidence = label.getConfidence();
                     textView.append(eachlabel + " - " + ("" + confidence * 100).subSequence(0, 4) + "%" + "\n\n");
                 }
+//                Intent intent = new Intent();
+//                intent.setAction(Intent.ACTION_VIEW);
+//                intent.setData(Uri.parse("https://www.google.com/search?q=" + task.getResult().get(0).getText()));
+//                startActivity(intent);
             }
         }).addOnFailureListener(new OnFailureListener() {
             @Override
             public void onFailure(@NonNull Exception e) {
+                Log.e("OnFail", "" + e);
                 Toast.makeText(MainActivity.this, "Something went wrong! " + e, Toast.LENGTH_SHORT).show();
             }
         });
     }
 
     private void fromRemoteModel() {
-        showPrgressBar();                                         /* model name*/
-        remoteModel = new FirebaseAutoMLRemoteModel.Builder("Flowers_2020123213435").build();
+        progressDialog.show();                                         /* model name*/
+        remoteModel = new FirebaseAutoMLRemoteModel.Builder("Flowers_2020124223430").build();
         conditions = new FirebaseModelDownloadConditions.Builder().requireWifi().build();
         //first download the model
         FirebaseModelManager.getInstance().download(remoteModel, conditions)
@@ -149,11 +169,5 @@ public class MainActivity extends AppCompatActivity {
                         CropImage.activity().start(MainActivity.this); // open image crop activity
                     }
                 });
-    }
-    private void showPrgressBar() {
-        progressDialog = new ProgressDialog(MainActivity.this);
-        progressDialog.setMessage("Please Wait...");
-        progressDialog.setCanceledOnTouchOutside(false);
-        progressDialog.show();
     }
 }
